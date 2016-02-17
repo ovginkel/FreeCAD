@@ -25,6 +25,7 @@
 import FreeCAD
 import os
 from math import pow, sqrt
+import numpy as np
 
 __title__ = "FreeCAD Calculix library"
 __author__ = "Juergen Riegel "
@@ -268,7 +269,31 @@ def calculate_von_mises(i):
     vm_stress = sqrt(0.5 * (s11s22 + s22s33 + s33s11 + s12s23s31))
     return vm_stress
 
+#calculate pricipal stresses
+def calculate_principal_stress(i):
+    sigma = np.array([[i[0],i[3],i[4]],
+                         [i[3],i[1],i[5]],
+                         [i[4],i[5],i[2]]])
 
+    # compute principal stresses
+    eigvals = list(np.linalg.eigvalsh(sigma))
+    eigvals.sort()
+    eigvals.reverse()
+    maxshear = (eigvals[0]-eigvals[2])/2.0
+    #compute von mises for check may be faster than current algorithm
+    # compute the stress invariants
+    #    sigma_iso = 1.0/3.0*np.trace(sigma)*np.eye(3)
+    #    sigma_dev = sigma - sigma_iso
+    #    I1 = np.trace(sigma)
+    #    J2 = 1.0/2.0*np.trace(numpy.dot(sigma_dev,sigma_dev))
+    #    J3 = 1.0/3.0*np.trace(\
+    #         np.dot(sigma_dev,numpy.dot(sigma_dev,sigma_dev)))
+    #
+    #    # compute other common stress measures
+    #    mean_stress = 1.0/3.0*I1
+    #    eqv_stress  = math.sqrt(3.0*J2)  #von mises from stress invariants 
+    return (eigvals[0],eigvals[1],eigvals[2], maxshear)
+  
 def importFrd(filename, analysis=None):
     m = readResult(filename)
     mesh_object = None
@@ -396,13 +421,30 @@ def importFrd(filename, analysis=None):
             stress = result_set['stress']
             if len(stress) > 0:
                 mstress = []
+                prinstress1=[]
+                prinstress2=[]
+                prinstress3=[]
+                shearstress=[]
                 for i in stress.values():
                     mstress.append(calculate_von_mises(i))
+                    prin1, prin2, prin3, shear=calculate_principal_stress(i)
+                    prinstress1.append(prin1)
+                    prinstress2.append(prin2)
+                    prinstress3.append(prin3)
+                    shearstress.append(shear)
                 if eigenmode_number > 0:
                     results.StressValues = map((lambda x: x * scale), mstress)
+                    results.PrinsMax = map((lambda x: x * scale), prinstress1)
+                    results.PrinsMed = map((lambda x: x * scale), prinstress2)
+                    results.PrinsMin = map((lambda x: x * scale), prinstress3)
+                    results.Maxshear = map((lambda x: x * scale), shearstress)
                     results.Eigenmode = eigenmode_number
                 else:
                     results.StressValues = mstress
+                    results.PrinsMax = prinstress1
+                    results.PrinsMed = prinstress2
+                    results.PrinsMin = prinstress3
+                    results.MaxShear = shearstress
 
             if (results.NodeNumbers != 0 and results.NodeNumbers != stress.keys()):
                 print ("Inconsistent FEM results: element number for Stress doesn't equal element number for Displacement {} != {}"
@@ -430,7 +472,11 @@ def importFrd(filename, analysis=None):
                              y_min, y_avg, y_max,
                              z_min, z_avg, z_max,
                              a_min, a_avg, a_max,
-                             s_min, s_avg, s_max]
+                             s_min, s_avg, s_max,
+                             max(results.PrinsMax), (sum(results.PrinsMax)/l), min(results.PrinsMax),  #MPH max pricipal stats
+                             max(results.PrinsMed), (sum(results.PrinsMed)/l), min(results.PrinsMed),  #MPH med pricipal stats
+                             max(results.PrinsMin), (sum(results.PrinsMin)/l), min(results.PrinsMin),  #MPH min pricipal stats
+                             max(results.MaxShear), (sum(results.MaxShear)/l), min(results.MaxShear)]  #MPH shear stress stats
             analysis_object.Member = analysis_object.Member + [results]
 
         if(FreeCAD.GuiUp):
